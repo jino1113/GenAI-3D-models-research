@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Meshy Text to 3D</title>
+</head>
+<body>
+  <h2>Generate 3D from Prompt</h2>
+  <input type="text" id="prompt" placeholder="e.g. A robot cat" size="40">
+  <button onclick="generate()">Generate</button>
+
+  <h3>Result:</h3>
+  <pre id="result"></pre>
+
+  <script>
+    async function generate() {
+      const prompt = document.getElementById('prompt').value;
+
+      const res = await fetch('/meshy/text-to-3d', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+
+      const data = await res.json();
+      document.getElementById('result').innerText = JSON.stringify(data, null, 2);
+    }
+  </script>
+</body>
+</html>
