@@ -205,3 +205,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+Hunyuan3D/Hunyuan3D-2/snapshots/294da3fbe350da0f5d7a7a04f9b96c1b61cc1e66/hunyuan3d-dit-v2-mini-turbo/config.yaml
+Hunyuan3D/Hunyuan3D-2/snapshots/294da3fbe350da0f5d7a7a04f9b96c1b61cc1e66/hunyuan3d-dit-v2-mini-turbo/model.fp16.ckpt
+Hunyuan3D/Hunyuan3D-2/snapshots/294da3fbe350da0f5d7a7a04f9b96c1b61cc1e66/hunyuan3d-dit-v2-mini-turbo/model.fp16.safetensors
