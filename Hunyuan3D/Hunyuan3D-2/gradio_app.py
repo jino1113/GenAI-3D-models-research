@@ -468,8 +468,8 @@ def build_app():
                                                     label='Target Face Number')
                         with gr.Row():
                             confirm_export = gr.Button(value="Transform", min_width=100)
-                            file_export = gr.Button(label="Download", variant='primary',
-                                                            interactive=False, min_width=100)
+                            file_export = gr.Button(value="Download", variant='primary',
+                                                    interactive=False, min_width=100)
 
             with gr.Column(scale=6):
                 with gr.Tabs(selected='gen_mesh_panel') as tabs_output:
