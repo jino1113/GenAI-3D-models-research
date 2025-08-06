@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Hunyuan3D Multiview Generator",
-    "author": "ราชาเก่า",
-    "version": (1, 1),
+    "author": "jino1113",
+    "version": (1, 2),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Hunyuan3D",
     "description": "Generate 3D model from 4-view images using Hunyuan AI API",
@@ -14,7 +14,6 @@ import base64
 import requests
 import tempfile
 
-
 # ---------- Encode Function ----------
 def encode_image_to_base64(image_path):
     try:
@@ -24,19 +23,22 @@ def encode_image_to_base64(image_path):
         print(f"Failed to encode {image_path}: {e}")
         return ""
 
-
 # ---------- Properties ----------
 class MultiviewProperties(bpy.types.PropertyGroup):
+    api_url: bpy.props.StringProperty(
+        name="API URL",
+        description="URL to the backend API",
+        default="http://127.0.0.1:8080/multiview"
+    )
     front_path: bpy.props.StringProperty(name="Front View", subtype='FILE_PATH')
     back_path: bpy.props.StringProperty(name="Back View", subtype='FILE_PATH')
     left_path: bpy.props.StringProperty(name="Left View", subtype='FILE_PATH')
     right_path: bpy.props.StringProperty(name="Right View", subtype='FILE_PATH')
-    api_url: bpy.props.StringProperty(
-        name="API URL",
-        description="URL to the backend API",
-        default="http://127.0.0.1:8081/multiview"
-    )
 
+    octree_resolution: bpy.props.IntProperty(name="Octree Resolution", default=512)
+    num_inference_steps: bpy.props.IntProperty(name="Number of Inference Steps", default=20)
+    guidance_scale: bpy.props.FloatProperty(name="Guidance Scale", default=5.5)
+    generate_texture: bpy.props.BoolProperty(name="Generate Texture", default=True)
 
 # ---------- Panel UI ----------
 class VIEW3D_PT_MultiviewPanel(bpy.types.Panel):
@@ -58,8 +60,13 @@ class VIEW3D_PT_MultiviewPanel(bpy.types.Panel):
         layout.prop(mv_props, "back_path")
         layout.prop(mv_props, "left_path")
         layout.prop(mv_props, "right_path")
-        layout.operator("object.generate_from_multiview", text="Generate from Multiview")
 
+        layout.prop(mv_props, "octree_resolution")
+        layout.prop(mv_props, "num_inference_steps")
+        layout.prop(mv_props, "guidance_scale")
+        layout.prop(mv_props, "generate_texture")
+
+        layout.operator("object.generate_from_multiview", text="Generate from Multiview")
 
 # ---------- Operator ----------
 class OBJECT_OT_GenerateFromMultiview(bpy.types.Operator):
@@ -75,7 +82,7 @@ class OBJECT_OT_GenerateFromMultiview(bpy.types.Operator):
             "right": mv.right_path,
         }
 
-        # Validate paths
+        # Validate file paths
         for name, path in views.items():
             abspath = bpy.path.abspath(path)
             if not os.path.exists(abspath):
@@ -83,23 +90,30 @@ class OBJECT_OT_GenerateFromMultiview(bpy.types.Operator):
                 return {'CANCELLED'}
 
         # Encode to base64
-        encoded_views = {
-            name: encode_image_to_base64(bpy.path.abspath(path)) for name, path in views.items()
+        encoded_views = {}
+        for name, path in views.items():
+            abspath = bpy.path.abspath(path)
+            b64 = encode_image_to_base64(abspath)
+            encoded_views[name] = b64
+
+        # Include parameters
+        payload = {
+            **encoded_views,
+            "octree_resolution": mv.octree_resolution,
+            "num_inference_steps": mv.num_inference_steps,
+            "guidance_scale": mv.guidance_scale,
+            "texture": mv.generate_texture
         }
 
         # Call backend API
         try:
-            response = requests.post(mv.api_url, json=encoded_views)
+            response = requests.post(mv.api_url, json=payload)
 
             if response.status_code == 200:
-                # Save GLB to temp file
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".glb")
                 temp_file.write(response.content)
                 temp_file.close()
-
-                # Import GLB into Blender
                 bpy.ops.import_scene.gltf(filepath=temp_file.name)
-
                 self.report({'INFO'}, "Model imported successfully.")
                 return {'FINISHED'}
             else:
@@ -109,7 +123,6 @@ class OBJECT_OT_GenerateFromMultiview(bpy.types.Operator):
             return {'CANCELLED'}
 
         return {'CANCELLED'}
-
 
 # ---------- Register ----------
 classes = (

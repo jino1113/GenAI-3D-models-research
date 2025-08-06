@@ -157,8 +157,8 @@ class ModelWorker:
 
         self.rembg = BackgroundRemover()
         self.pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-            model_path,
-            subfolder=subfolder,
+            'tencent/Hunyuan3D-2mv',  # ← เปลี่ยนเป็นรุ่น multiview
+            subfolder='hunyuan3d-dit-v2-mv',  # ← ใช้ subfolder multiview
             use_safetensors=True,
             device=device,
         )
@@ -272,6 +272,53 @@ async def generate(request: Request):
             "error_code": 1,
         }
         return JSONResponse(ret, status_code=404)
+
+@app.post("/multiview")
+async def generate_multiview(request: Request):
+    logger.info("Worker generating from MULTIVIEW...")
+    params = await request.json()
+    uid = uuid.uuid4()
+
+    try:
+        # เตรียมโฟลเดอร์ output ของงานนี้
+        output_dir = os.path.join(SAVE_DIR, str(uid))
+        os.makedirs(output_dir, exist_ok=True)
+
+        views = ['front', 'back', 'left', 'right']
+        images = {}
+        for v in views:
+            if v not in params:
+                raise ValueError(f"Missing view: {v}")
+            img = load_image_from_base64(params[v])
+            img = worker.rembg(img)  # ลบ background
+            images[v] = img
+            img.save(os.path.join(output_dir, f"{uid}_{v}.png"))  # เซฟภาพ
+
+        # ใช้ multiview จริง
+        params['image'] = images
+        mesh = worker.pipeline(**params)[0]
+
+        if params.get('texture', False):
+            mesh = FloaterRemover()(mesh)
+            mesh = DegenerateFaceRemover()(mesh)
+            mesh = FaceReducer()(mesh, max_facenum=params.get('face_count', 40000))
+            mesh = worker.pipeline_tex(mesh, images['front'])
+
+        type = params.get('type', 'glb')
+        save_path = os.path.join(output_dir, f'{uid}_result.{type}')
+        mesh.export(save_path)
+
+        torch.cuda.empty_cache()
+        return FileResponse(save_path)
+
+    except Exception as e:
+        traceback.print_exc()
+        logger.error(f"Error in multiview generation: {e}")
+        ret = {
+            "text": server_error_msg,
+            "error_code": 1,
+        }
+        return JSONResponse(ret, status_code=500)
 
 
 @app.post("/send")

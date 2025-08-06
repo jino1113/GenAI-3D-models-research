@@ -8,14 +8,12 @@ import os
 import logging
 import requests
 
-# ========== CONFIG ==========
 OUTPUT_FOLDER = "output"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 app = FastAPI()
 logger = logging.getLogger("uvicorn.error")
 
-# ========== UTILITIES ==========
 def load_image_from_base64(b64_str):
     decoded = base64.b64decode(b64_str)
     return Image.open(BytesIO(decoded)).convert("RGB")
@@ -25,15 +23,24 @@ def save_temp_image(img: Image.Image, uid: uuid.UUID, view_name: str) -> str:
     img.save(path)
     return path
 
-# ========== REAL PIPELINE ==========
 class HunyuanAPI:
-    def __init__(self, base_url="http://127.0.0.1:8081"):  # ต้องตรงกับเซิร์ฟเวอร์ Hunyuan ที่รัน
+    def __init__(self, base_url="http://127.0.0.1:8081"):  # ชี้ไปที่เซิร์ฟเวอร์หลัก
         self.base_url = base_url
 
-    def generate(self, uid, params):
+    def generate_multiview(self, uid, params):
         try:
-            logger.info(f"Sending request to Hunyuan3D API...")
-            response = requests.post(f"{self.base_url}/generate", json=params)
+            logger.info(f"Sending request to Hunyuan3D /multiview API...")
+            multiview_params = {
+                "front": params['front'],
+                "back": params['back'],
+                "left": params['left'],
+                "right": params['right'],
+                "texture": params.get("texture", True),
+                "octree_resolution": params.get("octree_resolution", 512),
+                "num_inference_steps": params.get("num_inference_steps", 20),
+                "guidance_scale": params.get("guidance_scale", 5.5)
+            }
+            response = requests.post(f"{self.base_url}/multiview", json=multiview_params)
 
             if response.status_code != 200:
                 raise Exception(f"Hunyuan3D API failed: {response.status_code} - {response.text}")
@@ -42,19 +49,18 @@ class HunyuanAPI:
             with open(output_path, "wb") as f:
                 f.write(response.content)
 
-            return output_path, {}
+            return output_path
         except Exception as e:
             logger.error(f"API request failed: {e}")
             raise
 
 worker = HunyuanAPI()
 
-# ========== /multiview ENDPOINT ==========
 @app.post("/multiview")
 async def multiview(request: Request):
     logger.info("Worker multiview...")
-
     views = await request.json()
+
     required_keys = ['front', 'back', 'left', 'right']
     for key in required_keys:
         if key not in views:
@@ -62,52 +68,18 @@ async def multiview(request: Request):
 
     try:
         uid = uuid.uuid4()
+        # Save images for debugging
+        for name in required_keys:
+            img = load_image_from_base64(views[name])
+            save_temp_image(img, uid, name)
 
-        # แปลง base64 เป็นภาพ และบันทึกไว้ (optional)
-        front_img = load_image_from_base64(views['front'])
-        back_img = load_image_from_base64(views['back'])
-        left_img = load_image_from_base64(views['left'])
-        right_img = load_image_from_base64(views['right'])
-
-        save_temp_image(front_img, uid, "front")
-        save_temp_image(back_img, uid, "back")
-        save_temp_image(left_img, uid, "left")
-        save_temp_image(right_img, uid, "right")
-
-        # ส่งเฉพาะ front เข้า model จริง
-        params = {
-            "image": views['front'],
-            "texture": True,
-            "octree_resolution": 128,
-            "num_inference_steps": 5,
-            "guidance_scale": 5.0
-        }
-
-        file_path, _ = worker.generate(uid, params)
+        file_path = worker.generate_multiview(uid, views)
         return FileResponse(file_path, media_type="model/gltf-binary")
 
     except Exception as e:
         logger.error(f"Multiview generation error: {e}")
         return JSONResponse({"error": f"Multiview generation failed: {str(e)}"}, status_code=500)
 
-# ========== /generate ENDPOINT ==========
-@app.post("/generate")
-async def generate(request: Request):
-    try:
-        data = await request.json()
-
-        if "image" not in data:
-            return JSONResponse({"error": "Missing 'image' in payload"}, status_code=400)
-
-        uid = uuid.uuid4()
-        file_path, _ = worker.generate(uid, data)
-
-        return FileResponse(file_path, media_type="model/gltf-binary")
-
-    except Exception as e:
-        return JSONResponse({"error": f"Generation failed: {str(e)}"}, status_code=500)
-
-# ========== START SERVER ==========
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("api_server_mod:app", host="127.0.0.1", port=8080, reload=True)
