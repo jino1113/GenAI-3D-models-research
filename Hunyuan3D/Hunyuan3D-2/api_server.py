@@ -286,15 +286,19 @@ async def generate_multiview(request: Request):
 
         views = ['front', 'back', 'left', 'right']
         images = {}
-        for v in views:
-            if v not in params:
-                raise ValueError(f"Missing view: {v}")
-            img = load_image_from_base64(params[v])
-            img = worker.rembg(img)  # ลบ background
-            images[v] = img
-            img.save(os.path.join(output_dir, f"{uid}_{v}.png"))  # เซฟภาพ
 
-        # ใช้ multiview จริง
+        # ✅ เก็บเฉพาะภาพที่มีใน params
+        for v in views:
+            if v in params:
+                img = load_image_from_base64(params[v])
+                img = worker.rembg(img)
+                images[v] = img
+                img.save(os.path.join(output_dir, f"{uid}_{v}.png"))
+
+        # ❗ ตรวจอย่างน้อยต้องมีภาพ 1 มุม
+        if not images:
+            raise ValueError("At least one view must be provided.")
+
         params['image'] = images
         mesh = worker.pipeline(**params)[0]
 

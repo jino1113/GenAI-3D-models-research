@@ -30,16 +30,14 @@ class HunyuanAPI:
     def generate_multiview(self, uid, params):
         try:
             logger.info(f"Sending request to Hunyuan3D /multiview API...")
-            multiview_params = {
-                "front": params['front'],
-                "back": params['back'],
-                "left": params['left'],
-                "right": params['right'],
+            multiview_params = {k: params[k] for k in ['front', 'back', 'left', 'right'] if k in params}
+            multiview_params.update({
                 "texture": params.get("texture", True),
                 "octree_resolution": params.get("octree_resolution", 512),
                 "num_inference_steps": params.get("num_inference_steps", 20),
                 "guidance_scale": params.get("guidance_scale", 5.5)
-            }
+            })
+
             response = requests.post(f"{self.base_url}/multiview", json=multiview_params)
 
             if response.status_code != 200:
@@ -61,17 +59,19 @@ async def multiview(request: Request):
     logger.info("Worker multiview...")
     views = await request.json()
 
-    required_keys = ['front', 'back', 'left', 'right']
-    for key in required_keys:
-        if key not in views:
-            return JSONResponse({"error": f"Missing view: {key}"}, status_code=400)
+    allowed_keys = ['front', 'back', 'left', 'right']
+    uid = uuid.uuid4()
+
+    # ตรวจว่ามีอย่างน้อย 1 มุม
+    if not any(k in views for k in allowed_keys):
+        return JSONResponse({"error": "At least one view must be provided."}, status_code=400)
 
     try:
-        uid = uuid.uuid4()
-        # Save images for debugging
-        for name in required_keys:
-            img = load_image_from_base64(views[name])
-            save_temp_image(img, uid, name)
+        # save เฉพาะมุมที่มี
+        for key in allowed_keys:
+            if key in views:
+                img = load_image_from_base64(views[key])
+                save_temp_image(img, uid, key)
 
         file_path = worker.generate_multiview(uid, views)
         return FileResponse(file_path, media_type="model/gltf-binary")

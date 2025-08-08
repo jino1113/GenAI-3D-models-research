@@ -82,17 +82,18 @@ class OBJECT_OT_GenerateFromMultiview(bpy.types.Operator):
             "right": mv.right_path,
         }
 
-        # Validate file paths
+        encoded_views = {}
+
+        # ตรวจแค่มุมที่ผู้ใช้ใส่
         for name, path in views.items():
+            if path.strip() == "":
+                continue  # ข้ามถ้าไม่ได้ใส่ภาพ
+
             abspath = bpy.path.abspath(path)
             if not os.path.exists(abspath):
-                self.report({'ERROR'}, f"Missing file for {name} view: {path}")
+                self.report({'ERROR'}, f"File not found for {name} view: {path}")
                 return {'CANCELLED'}
 
-        # Encode to base64
-        encoded_views = {}
-        for name, path in views.items():
-            abspath = bpy.path.abspath(path)
             b64 = encode_image_to_base64(abspath)
             encoded_views[name] = b64
 
