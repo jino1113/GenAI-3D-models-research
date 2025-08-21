@@ -1,0 +1,84 @@
+﻿model:
+  base_learning_rate: 5.0e-05
+  target: hy3dpaint.src.models.lightning_module.HunyuanPaintLightningModule
+  params:
+    learning_rate: 5.0e-05
+    pipeline:
+      target: hunyuanpaintpbr.pipeline.HunyuanPaintPipeline
+      params:
+        vae:
+          target: diffusers.AutoencoderKL
+          params:
+            pretrained_model_name_or_path: stabilityai/stable-diffusion-2-1
+            subfolder: vae
+
+        text_encoder:
+          target: transformers.CLIPTextModel
+          params:
+            pretrained_model_name_or_path: stabilityai/stable-diffusion-2-1
+            subfolder: text_encoder
+
+        tokenizer:
+          target: transformers.CLIPTokenizer
+          params:
+            pretrained_model_name_or_path: stabilityai/stable-diffusion-2-1
+            subfolder: tokenizer
+
+        unet:
+          target: diffusers.UNet2DConditionModel
+          params:
+            sample_size: 64
+            in_channels: 4
+            out_channels: 4
+            down_block_types:
+              - CrossAttnDownBlock2D
+              - CrossAttnDownBlock2D
+              - CrossAttnDownBlock2D
+              - DownBlock2D
+            up_block_types:
+              - UpBlock2D
+              - CrossAttnUpBlock2D
+              - CrossAttnUpBlock2D
+              - CrossAttnUpBlock2D
+            block_out_channels: [320, 640, 1280, 1280]
+            layers_per_block: 2
+            attention_head_dim: [5, 10, 20, 20]
+            cross_attention_dim: 1024
+
+        scheduler:
+          target: diffusers.DDIMScheduler
+          params:
+            num_train_timesteps: 1000
+            beta_start: 0.00085
+            beta_end: 0.012
+            beta_schedule: scaled_linear
+            clip_sample: false
+            set_alpha_to_one: false
+            steps_offset: 1
+            prediction_type: epsilon
+
+        feature_extractor:
+          target: transformers.CLIPFeatureExtractor
+          params:
+            pretrained_model_name_or_path: openai/clip-vit-base-patch32
+
+        kwargs: {}
+
+lightning:
+  trainer:
+    accelerator: gpu
+    devices: 1
+    strategy: auto
+
+data:
+  target: hy3dpaint.src.data.folder_text_dm.FolderCaptionDataModule
+  params:
+    train_dir: C:/Users/Jino/Documents/GitHub/GenAI_3D_models_research/Hunyuan3D-2.1-main/hy3dpaint/train_examples/002/Screw
+    captions_file: captions.csv        # ใช้ CSV
+    image_column: image                # ชื่อคอลัมน์รูปใน CSV
+    caption_column: text               # ชื่อคอลัมน์แคปชันใน CSV
+    resolution: 512
+    center_crop: true
+    random_flip: true
+    batch_size: 2
+    num_workers: 4

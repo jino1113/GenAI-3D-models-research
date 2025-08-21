@@ -13,28 +13,42 @@
 # by Tencent in accordance with TENCENT HUNYUAN COMMUNITY LICENSE AGREEMENT.
 
 import importlib
-
-
-def count_params(model, verbose=False):
-    total_params = sum(p.numel() for p in model.parameters())
-    if verbose:
-        print(f"{model.__class__.__name__} has {total_params*1.e-6:.2f} M params.")
-    return total_params
-
-
-def instantiate_from_config(config):
-    if not "target" in config:
-        if config == "__is_first_stage__":
-            return None
-        elif config == "__is_unconditional__":
-            return None
-        raise KeyError("Expected key `target` to instantiate.")
-    return get_obj_from_str(config["target"])(**config.get("params", dict()))
-
+from omegaconf import OmegaConf, DictConfig, ListConfig
 
 def get_obj_from_str(string, reload=False):
     module, cls = string.rsplit(".", 1)
     if reload:
-        module_imp = importlib.import_module(module)
-        importlib.reload(module_imp)
+        m = importlib.import_module(module)
+        importlib.reload(m)
     return getattr(importlib.import_module(module, package=None), cls)
+
+def _to_py(o):
+    if isinstance(o, (DictConfig, ListConfig)):
+        return OmegaConf.to_container(o, resolve=True)
+    return o
+
+def instantiate_from_config(config):
+    cfg = _to_py(config) or {}
+    if not isinstance(cfg, dict) or "target" not in cfg:
+        raise KeyError("Expected key `target` to instantiate.")
+
+    cls = get_obj_from_str(cfg["target"])
+    params = _to_py(cfg.get("params", {})) or {}
+
+    # ✅ ถ้ามีพารามิเตอร์ของ from_pretrained ให้เรียก from_pretrained แทน
+    if any(k in params for k in ("pretrained_model_name_or_path", "model_name_or_path", "pretrained_model_path")) \
+       and hasattr(cls, "from_pretrained"):
+        return cls.from_pretrained(**params)
+
+    # 🔁 รีเคอร์ซีฟอินสแตนซ์ซับคอนฟิก
+    def resolve(v):
+        v = _to_py(v)
+        if isinstance(v, dict) and "target" in v:
+            return instantiate_from_config(v)
+        if isinstance(v, list):
+            return [resolve(x) for x in v]
+        return v
+
+    params = {k: resolve(v) for k, v in params.items()}
+    params.pop("kwargs", None)
+    return cls(**params)

@@ -12,11 +12,12 @@
 # fine-tuning enabling code and other elements of the foregoing made publicly available
 # by Tencent in accordance with TENCENT HUNYUAN COMMUNITY LICENSE AGREEMENT.
 
-import torch
 import os, sys
 import argparse
-import shutil
 import subprocess
+import warnings
+
+import torch
 from omegaconf import OmegaConf
 
 from pytorch_lightning import seed_everything
@@ -26,7 +27,6 @@ from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.utilities import rank_zero_only, rank_zero_warn
 
 from src.utils.train_util import instantiate_from_config
-import warnings
 
 warnings.filterwarnings("ignore")
 from diffusers.utils import logging as diffusers_logging
@@ -51,58 +51,14 @@ def get_parser(**parser_kwargs):
             raise argparse.ArgumentTypeError("Boolean value expected.")
 
     parser = argparse.ArgumentParser(**parser_kwargs)
-    parser.add_argument(
-        "-r",
-        "--resume",
-        type=str,
-        default=None,
-        help="resume from checkpoint",
-    )
-    parser.add_argument(
-        "--resume_weights_only",
-        action="store_true",
-        help="only resume model weights",
-    )
-    parser.add_argument(
-        "-b",
-        "--base",
-        type=str,
-        default="base_config.yaml",
-        help="path to base configs",
-    )
-    parser.add_argument(
-        "-n",
-        "--name",
-        type=str,
-        default="",
-        help="experiment name",
-    )
-    parser.add_argument(
-        "--num_nodes",
-        type=int,
-        default=1,
-        help="number of nodes to use",
-    )
-    parser.add_argument(
-        "--gpus",
-        type=str,
-        default="0,",
-        help="gpu ids to use",
-    )
-    parser.add_argument(
-        "-s",
-        "--seed",
-        type=int,
-        default=42,
-        help="seed for seed_everything",
-    )
-    parser.add_argument(
-        "-l",
-        "--logdir",
-        type=str,
-        default="logs",
-        help="directory for logging data",
-    )
+    parser.add_argument("-r", "--resume", type=str, default=None, help="resume from checkpoint")
+    parser.add_argument("--resume_weights_only", action="store_true", help="only resume model weights")
+    parser.add_argument("-b", "--base", type=str, default="base_config.yaml", help="path to base configs")
+    parser.add_argument("-n", "--name", type=str, default="", help="experiment name")
+    parser.add_argument("--num_nodes", type=int, default=1, help="number of nodes to use")
+    parser.add_argument("--gpus", type=str, default="0,", help="gpu ids to use")
+    parser.add_argument("-s", "--seed", type=int, default=42, help="seed for seed_everything")
+    parser.add_argument("-l", "--logdir", type=str, default="logs", help="directory for logging data")
     return parser
 
 
@@ -117,7 +73,6 @@ class SetupCallback(Callback):
 
     def on_fit_start(self, trainer, pl_module):
         if trainer.global_rank == 0:
-            # Create logdirs and save configs
             os.makedirs(self.logdir, exist_ok=True)
             os.makedirs(self.ckptdir, exist_ok=True)
             os.makedirs(self.cfgdir, exist_ok=True)
@@ -128,9 +83,7 @@ class SetupCallback(Callback):
 
 
 class CodeSnapshot(Callback):
-    """
-    Modified from https://github.com/threestudio-project/threestudio/blob/main/threestudio/utils/callbacks.py#L60
-    """
+    """Minimal code snapshotter (disabled copying by default)."""
 
     def __init__(self, savedir):
         self.savedir = savedir
@@ -139,33 +92,44 @@ class CodeSnapshot(Callback):
         return [
             b.decode()
             for b in set(subprocess.check_output('git ls-files -- ":!:configs/*"', shell=True).splitlines())
-            | set(  # hard code, TODO: use config to exclude folders or files
-                subprocess.check_output("git ls-files --others --exclude-standard", shell=True).splitlines()
-            )
+            | set(subprocess.check_output("git ls-files --others --exclude-standard", shell=True).splitlines())
         ]
 
     @rank_zero_only
     def save_code_snapshot(self):
         os.makedirs(self.savedir, exist_ok=True)
-
-    #       for f in self.get_file_list():
-    #           if not os.path.exists(f) or os.path.isdir(f):
-    #               continue
-    #           os.makedirs(os.path.join(self.savedir, os.path.dirname(f)), exist_ok=True)
-    #           shutil.copyfile(f, os.path.join(self.savedir, f))
+        # If you want to copy files, uncomment below
+        # for f in self.get_file_list():
+        #     if not os.path.exists(f) or os.path.isdir(f):
+        #         continue
+        #     os.makedirs(os.path.join(self.savedir, os.path.dirname(f)), exist_ok=True)
+        #     shutil.copyfile(f, os.path.join(self.savedir, f))
 
     def on_fit_start(self, trainer, pl_module):
         try:
             self.save_code_snapshot()
-        except:
+        except Exception:
             rank_zero_warn(
                 "Code snapshot is not saved. Please make sure you have git installed and are in a git repository."
             )
 
 
+# -------- helpers --------
+
+def get_unet_core(pipeline_or_module):
+    """Return inner UNet whether wrapped or not, without creating self-references."""
+    unet = getattr(pipeline_or_module, "unet", pipeline_or_module)
+    return getattr(unet, "unet", unet)
+
+
+def has_self_reference(mod) -> bool:
+    try:
+        return hasattr(mod, "unet") and (mod.unet is mod)
+    except Exception:
+        return False
+
+
 if __name__ == "__main__":
-    # add cwd for convenience and to make classes in this file available when
-    # running as `python main.py`
     sys.path.append(os.getcwd())
     torch.set_float32_matmul_precision("medium")
 
@@ -177,7 +141,7 @@ if __name__ == "__main__":
     exp_name = "-" + opt.name if opt.name != "" else ""
     logdir = os.path.join(opt.logdir, cfg_name + exp_name)
 
-    # assert not os.path.exists(logdir) or 'test' in logdir, logdir
+    # auto-resume
     if os.path.exists(logdir) and opt.resume is None:
         auto_resume_path = os.path.join(logdir, "checkpoints", "last.ckpt")
         if os.path.exists(auto_resume_path):
@@ -188,14 +152,14 @@ if __name__ == "__main__":
     cfgdir = os.path.join(logdir, "configs")
     codedir = os.path.join(logdir, "code")
 
-    node_rank = int(os.environ.get("NODE_RANK", 0))  # 当前节点的编号
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))  # 当前节点上的 GPU 编号
-    num_gpus_per_node = torch.cuda.device_count()  # 每个节点上的 GPU 数量
+    node_rank = int(os.environ.get("NODE_RANK", 0))
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    num_gpus_per_node = torch.cuda.device_count()
 
     global_rank = node_rank * num_gpus_per_node + local_rank
     seed_everything(opt.seed + global_rank)
 
-    # init configs
+    # load configs
     config = OmegaConf.load(opt.base)
     lightning_config = config.lightning
     trainer_config = lightning_config.trainer
@@ -204,22 +168,25 @@ if __name__ == "__main__":
     rank_zero_print(f"Running on GPUs {opt.gpus}")
     try:
         ngpu = int(opt.gpus)
-    except:
+    except Exception:
         ngpu = len(opt.gpus.strip(",").split(","))
     trainer_config["devices"] = ngpu
 
     trainer_opt = argparse.Namespace(**trainer_config)
     lightning_config.trainer = trainer_config
 
-    # model
+    # build model from config
     model = instantiate_from_config(config.model)
 
-    model_unet = model.unet.unet
-    model_unet_prefix = "unet.unet."
-    if hasattr(model_unet, "unet"):
-        model_unet = model_unet.unet
-        model_unet_prefix += "unet."
+    # ---- robust UNet access (no self-loop) ----
+    # never set model.unet.unet = model.unet
+    if has_self_reference(model.unet):
+        raise RuntimeError("Detected self-referencing UNet (model.unet.unet is model.unet). Remove that alias.")
 
+    model_unet = get_unet_core(model.unet)
+    model_unet_prefix = "unet.unet." if hasattr(model.unet, "unet") else "unet."
+
+    # init from checkpoints (optional)
     if getattr(config, "init_unet_from", None):
         unet_ckpt_path = config.init_unet_from
         sd = torch.load(unet_ckpt_path, map_location="cpu")
@@ -231,19 +198,21 @@ if __name__ == "__main__":
 
         def replace_key(key_str):
             replace_pairs = [("key", "to_k"), ("query", "to_q"), ("value", "to_v"), ("proj_attn", "to_out.0")]
-            for replace_pair in replace_pairs:
-                key_str = key_str.replace(replace_pair[0], replace_pair[1])
+            for a, b in replace_pairs:
+                key_str = key_str.replace(a, b)
             return key_str
 
         sd_vae = {replace_key(k): v for k, v in sd_vae.items()}
         model.pipeline.vae.load_state_dict(sd_vae, strict=True)
 
+    # optional controlnet
     if hasattr(model.unet, "controlnet"):
         if getattr(config, "init_control_from", None):
             unet_ckpt_path = config.init_control_from
             sd_control = torch.load(unet_ckpt_path, map_location="cpu")
             model.unet.controlnet.load(sd_control, strict=True)
 
+    # adjust noise in-channels if requested
     noise_in_channels = config.model.params.get("noise_in_channels", None)
     if noise_in_channels is not None:
         with torch.no_grad():
@@ -256,12 +225,11 @@ if __name__ == "__main__":
             )
             new_conv_in.weight.zero_()
             new_conv_in.weight[:, : model_unet.conv_in.in_channels, :, :].copy_(model_unet.conv_in.weight)
-
             new_conv_in.bias.zero_()
             new_conv_in.bias[: model_unet.conv_in.bias.size(0)].copy_(model_unet.conv_in.bias)
-
             model_unet.conv_in = new_conv_in
 
+    # adjust controlnet in-channels
     if hasattr(model.unet, "controlnet"):
         if config.model.params.get("control_in_channels", None):
             control_in_channels = config.model.params.control_in_channels
@@ -285,38 +253,35 @@ if __name__ == "__main__":
 
     rank_zero_print(f"Loaded Init ...")
 
+    # resume partial weights
     if getattr(config, "resume_from", None):
         cnet_ckpt_path = config.resume_from
         sds = torch.load(cnet_ckpt_path, map_location="cpu")["state_dict"]
         sd0 = {k[len(model_unet_prefix) :]: v for k, v in sds.items() if model_unet_prefix in k}
-        # model.unet.unet.unet.load_state_dict(sd0, strict=True)
         model_unet.load_state_dict(sd0, strict=True)
         if hasattr(model.unet, "controlnet"):
             sd1 = {k[16:]: v for k, v in sds.items() if "unet.controlnet." in k}
             model.unet.controlnet.load_state_dict(sd1, strict=True)
         rank_zero_print(f"Loaded {cnet_ckpt_path} ...")
 
+    # resume full module
     if opt.resume and opt.resume_weights_only:
         model = model.__class__.load_from_checkpoint(opt.resume, **config.model.params)
 
     model.logdir = logdir
 
-    # trainer and callbacks
-    trainer_kwargs = dict()
+    # ----- trainer & callbacks -----
+    trainer_kwargs = {}
 
     # logger
     default_logger_cfg = {
         "target": "pytorch_lightning.loggers.TensorBoardLogger",
-        "params": {
-            "name": "tensorboard",
-            "save_dir": logdir,
-            "version": "0",
-        },
+        "params": {"name": "tensorboard", "save_dir": logdir, "version": "0"},
     }
     logger_cfg = OmegaConf.merge(default_logger_cfg)
     trainer_kwargs["logger"] = instantiate_from_config(logger_cfg)
 
-    # model checkpoint
+    # checkpoint callback
     default_modelckpt_cfg = {
         "target": "pytorch_lightning.callbacks.ModelCheckpoint",
         "params": {
@@ -325,14 +290,11 @@ if __name__ == "__main__":
             "verbose": True,
             "save_last": True,
             "every_n_train_steps": 5000,
-            "save_top_k": -1,  # save all checkpoints
+            "save_top_k": -1,
         },
     }
 
-    if "modelcheckpoint" in lightning_config:
-        modelckpt_cfg = lightning_config.modelcheckpoint
-    else:
-        modelckpt_cfg = OmegaConf.create()
+    modelckpt_cfg = lightning_config.get("modelcheckpoint", OmegaConf.create())
     modelckpt_cfg = OmegaConf.merge(default_modelckpt_cfg, modelckpt_cfg)
 
     # callbacks
@@ -349,53 +311,41 @@ if __name__ == "__main__":
         },
         "learning_rate_logger": {
             "target": "pytorch_lightning.callbacks.LearningRateMonitor",
-            "params": {
-                "logging_interval": "step",
-            },
+            "params": {"logging_interval": "step"},
         },
-        "code_snapshot": {
-            "target": "train.CodeSnapshot",
-            "params": {
-                "savedir": codedir,
-            },
-        },
+        "code_snapshot": {"target": "train.CodeSnapshot", "params": {"savedir": codedir}},
     }
     default_callbacks_cfg["checkpoint_callback"] = modelckpt_cfg
 
-    if "callbacks" in lightning_config:
-        callbacks_cfg = lightning_config.callbacks
-    else:
-        callbacks_cfg = OmegaConf.create()
-    callbacks_cfg = OmegaConf.merge(default_callbacks_cfg, callbacks_cfg)
-
+    callbacks_cfg = OmegaConf.merge(default_callbacks_cfg, lightning_config.get("callbacks", OmegaConf.create()))
     trainer_kwargs["callbacks"] = [instantiate_from_config(callbacks_cfg[k]) for k in callbacks_cfg]
 
+    # precision & strategy (optional override by CLI/PL)
     trainer_kwargs["precision"] = "bf16"
     trainer_kwargs["strategy"] = DDPStrategy(find_unused_parameters=False)
 
-    # trainer
-    trainer = Trainer(**trainer_config, **trainer_kwargs, num_nodes=opt.num_nodes, inference_mode=False)
+    # trainer from config (avoid double-assigning strategy/accelerator)
+    cfg = config["lightning"]["trainer"]
+    trainer = Trainer(**cfg, inference_mode=False)
     trainer.logdir = logdir
 
-    # data
+    # ----- data -----
     data = instantiate_from_config(config.data)
     data.prepare_data()
     data.setup("fit")
 
-    # configure learning rate
+    # ----- LR setup -----
     base_lr = config.model.base_learning_rate
-    if "accumulate_grad_batches" in lightning_config.trainer:
-        accumulate_grad_batches = lightning_config.trainer.accumulate_grad_batches
-    else:
-        accumulate_grad_batches = 1
+    accumulate_grad_batches = lightning_config.trainer.get("accumulate_grad_batches", 1)
     rank_zero_print(f"accumulate_grad_batches = {accumulate_grad_batches}")
     lightning_config.trainer.accumulate_grad_batches = accumulate_grad_batches
     model.learning_rate = base_lr
     rank_zero_print("++++ NOT USING LR SCALING ++++")
     rank_zero_print(f"Setting learning rate to {model.learning_rate:.2e}")
 
-    # run training loop
+    # ----- fit -----
     if opt.resume and not opt.resume_weights_only:
         trainer.fit(model, data, ckpt_path=opt.resume)
     else:
+
         trainer.fit(model, data)
