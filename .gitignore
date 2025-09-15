@@ -519,3 +519,8 @@ Hunyuan3D/Hunyuan3D-2/.hycache/hub/models--tencent--Hunyuan3D-2/snapshots/0798d3
 Hunyuan3D/Hunyuan3D-2/.hycache/hub/models--tencent--Hunyuan3D-2/snapshots/0798d3451a19a46491e9ba8ed9b935274ad70c9f/hunyuan3d-delight-v2-0/text_encoder/model.safetensors
 Hunyuan3D-2.1-main/hy3dshape/minimal_demo_with_ckpt.py
 Hunyuan3D-2.1-main/hy3dpaint/lightning_logs/version_3/checkpoints/epoch=190-step=3438.ckpt
+Hunyuan3D/Hunyuan3D-2/.hycache/models--tencent--Hunyuan3D-2-mv/blobs/172d7a989b99f66af760da0080d8c6f6350c72609536cf0c55b87a4afa574e45
+Hunyuan3D/Hunyuan3D-2/.hycache/models--tencent--Hunyuan3D-2-mv/blobs/97979455b360c3b6f767c49ac6b4238a215d915b89d9611c19d2545bf664697f
+Hunyuan3D/Hunyuan3D-2/.hycache/models--tencent--Hunyuan3D-2/snapshots/4ea2fff9a7db8c2b637f06457655d0bfa875dbf5/hunyuan3d-paint-v2-0-turbo/text_encoder/pytorch_model.bin
+Hunyuan3D/Hunyuan3D-2/.hycache/models--tencent--Hunyuan3D-2/snapshots/4ea2fff9a7db8c2b637f06457655d0bfa875dbf5/hunyuan3d-paint-v2-0-turbo/unet/diffusion_pytorch_model.bin
+Hunyuan3D/Hunyuan3D-2/.hycache/models--tencent--Hunyuan3D-2/snapshots/4ea2fff9a7db8c2b637f06457655d0bfa875dbf5/hunyuan3d-paint-v2-0-turbo/vae/diffusion_pytorch_model.bin
